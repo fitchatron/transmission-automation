@@ -1,0 +1,6 @@
+.env
+.env*.local
+venv
+.venv
+logs
+.log
