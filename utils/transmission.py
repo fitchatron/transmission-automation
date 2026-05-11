@@ -8,6 +8,10 @@ def list_torrents(logger: logging.Logger) -> list[dict]:
         ["transmission-remote", "-l"], capture_output=True, text=True
     )
 
+    # fmt: off
+    import pdb; pdb.set_trace()
+    # fmt: on
+
     headers = ["id", "done", "have", "eta", "up", "down", "ratio", "status", "name"]
     torrents: list[dict] = []
     lines = result.stdout.splitlines()

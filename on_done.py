@@ -25,6 +25,13 @@ def main():
     torrent_name = os.environ.get("TR_TORRENT_NAME")
     torrent_dir = os.environ.get("TR_TORRENT_DIR")
     status = "moved"
+    valid_formats = [".mp4", ".mkv"]
+    
+    files_in_downloads = subprocess.run(
+        ["ls", "-al", torrent_dir], capture_output=True, text=True
+    )
+
+    logging.info(f"Torrent finished downloading, {torrent_id}, {torrent_name}, {torrent_dir} | downloads dir: {files_in_downloads}")
 
     try:
         if not all([torrent_id, torrent_name, torrent_dir]):
@@ -75,25 +82,21 @@ def main():
         # if file, continue,
         # else directory, go down one level and get file
         # target_path = source_path / torrent_name
+	
+        targets = []
+
+        if source_path.is_file() and source_path.suffix in valid_formats:
+            targets.append(source_path)	            
 
         if source_path.is_dir():
-            file = next(
-                (
-                    item
-                    for item in source_path.iterdir()
-                    if item.is_file()
-                    and item.suffix in [".mkv", ".mp4"]
-                    and item.name == torrent_name
-                ),
-                None,
-            )
+            for item in source_path.iterdir():
+                if item.is_file() and item.suffix in valid_formats:
+                    file_name = f"{file.name}/{file.suffix}"
+                    targets.append(source_path / file_name)
 
-            if file is None:
-                logging.error(f"Source file does not exist: {source_path}")
-                status = "failed"
-            # else:
-            # file_name = f"{file.name}/{file.suffix}"
-            # target_path = source_path / file_name
+        if len(targets) == 0:
+            logging.error(f"No source files found: {source_path}")
+            status = "failed"
 
         if status == "failed":
             now = datetime.now()
@@ -102,7 +105,7 @@ def main():
                     UPDATE torrents
                     SET status = ?,
                         completed_at = ?,
-                        modified_at = ?,
+                        modified_at = ?
                     WHERE id = ?
                 """,
                 (status, now, now, torrent_db_id),
@@ -112,7 +115,8 @@ def main():
             return
 
         # copy file from source to destination
-        shutil.copy(str(source_path), str(destination_dir))
+        for target in targets:
+            shutil.copy(str(target), str(destination_dir))
 
         # delete at source
         # shutil.rmtree(str(source_path))
@@ -124,7 +128,7 @@ def main():
                 UPDATE torrents
                 SET status = ?,
                     completed_at = ?,
-                    modified_at = ?,
+                    modified_at = ?
                 WHERE id = ?
             """,
             (status, now, now, torrent_db_id),
