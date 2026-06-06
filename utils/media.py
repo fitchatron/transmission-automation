@@ -1,11 +1,16 @@
 import re
 from pathlib import Path
+from rapidfuzz import fuzz
 
 DEFAULT_DEST = Path("/mnt/ds223j/incoming")
 
 
 def normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def is_string_match(first: str, second: str, threshold: float = 90.0) -> bool:
+    return fuzz.ratio(first, second) >= threshold
 
 
 def contains_term(term: str, text: str) -> bool:
@@ -52,4 +57,3 @@ def find_metadata(conn, normalized_title: str, type_: str):
             return metadata_id, Path(dest)
 
     return None, DEFAULT_DEST
-
