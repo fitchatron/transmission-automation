@@ -10,7 +10,7 @@ def normalize(text: str) -> str:
 
 
 def is_string_match(first: str, second: str, threshold: float = 90.0) -> bool:
-    return fuzz.ratio(first, second) >= threshold
+    return fuzz.ratio(normalize(first), normalize(second)) >= threshold
 
 
 def contains_term(term: str, text: str) -> bool:
