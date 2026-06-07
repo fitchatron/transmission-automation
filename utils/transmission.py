@@ -8,10 +8,6 @@ def list_torrents(logger: logging.Logger) -> list[dict]:
         ["transmission-remote", "-l"], capture_output=True, text=True
     )
 
-    # fmt: off
-    import pdb; pdb.set_trace()
-    # fmt: on
-
     headers = ["id", "done", "have", "eta", "up", "down", "ratio", "status", "name"]
     torrents: list[dict] = []
     lines = result.stdout.splitlines()
@@ -20,8 +16,8 @@ def list_torrents(logger: logging.Logger) -> list[dict]:
         if idx == 0 or idx == len(lines) - 1:
             continue
 
-        # Split on 2+ spaces to handle columns with spaces in them
-        parts = re.split(r"\s{2,}", line.strip())
+        # Split only the first 8 delimiters so remaining text is always the name.
+        parts = re.split(r"\s{2,}", line.strip(), maxsplit=len(headers) - 1)
 
         if len(parts) != len(headers):
             print(f"Unexpected line format: {line}")
@@ -53,4 +49,3 @@ def add_torrent(logger: logging.Logger, magnet: str):
 def remove_torrent(logger: logging.Logger, torrent_id: str):
     subprocess.run(["transmission-remote", "-t", torrent_id, "-r"], check=False)
     logger.info(f"Torrent removed successfully: {torrent_id}")
-
