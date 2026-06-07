@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import sqlite3
 import sys
 
 from utils.db import get_connection
@@ -11,7 +12,11 @@ def parse_args():
         description="Insert a metadata row for a movie or tv-show."
     )
     parser.add_argument("name", help="Display title and match pattern.")
-    parser.add_argument("type", choices=["tv-show", "movie"], help="Media type.")
+    parser.add_argument(
+        "media_type",
+        choices=["tv-show", "movie"],
+        help="Media type.",
+    )
     parser.add_argument(
         "destination",
         nargs="?",
@@ -23,12 +28,12 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if args.type == "movie":
+    if args.media_type == "movie":
         destination = args.destination or "/Movies"
     elif args.destination:
         destination = args.destination
     else:
-        print("destination is required for tv-show")
+        print("destination is required for media_type 'tv-show'")
         sys.exit(1)
 
     conn = get_connection()
@@ -38,13 +43,17 @@ def main():
             INSERT INTO metadata (title, type, match_pattern, destination_path)
             VALUES (?, ?, ?, ?)
             """,
-            (args.name, args.type, args.name, destination),
+            (args.name, args.media_type, args.name, destination),
         )
         conn.commit()
+    except sqlite3.Error as error:
+        conn.rollback()
+        print(f"Failed to insert metadata: {error}")
+        sys.exit(1)
     finally:
         conn.close()
 
-    print(f"Inserted metadata for '{args.name}' ({args.type}) -> {destination}")
+    print(f"Inserted metadata for '{args.name}' ({args.media_type}) -> {destination}")
 
 
 if __name__ == "__main__":
