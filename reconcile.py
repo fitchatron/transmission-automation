@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
 import json
 from utils.add_torrents_to_db import add_new_torrents_to_db
 

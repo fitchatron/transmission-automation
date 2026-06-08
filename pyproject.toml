@@ -1,0 +1,22 @@
+[project]
+name = "transmission-automation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "rapidfuzz>=3.14.5",
+]
+
+[project.scripts]
+add-media = "add_media:main"
+init-db = "init_db:main"
+on-done = "on_done:main"
+reconcile = "reconcile:main"
+start-torrent = "start_torrent:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
