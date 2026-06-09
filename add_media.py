@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/opt/media-automation/.venv/bin/python
 
 import argparse
 import sqlite3

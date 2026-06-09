@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/opt/media-automation/.venv/bin/python
 
 import sqlite3
 from pathlib import Path
@@ -52,4 +52,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

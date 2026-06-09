@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/opt/media-automation/.venv/bin/python
 
 import os
 import shutil
@@ -146,4 +146,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
