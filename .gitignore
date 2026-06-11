@@ -5,3 +5,4 @@ venv
 logs
 .log
 __pycache__/
+*.db
