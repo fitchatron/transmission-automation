@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run
+#!/opt/media-automation/.venv/bin/python
 import json
 import logging
 import re
@@ -42,4 +42,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
