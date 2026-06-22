@@ -2,8 +2,8 @@ import pytest
 from utils.media import is_string_match
 
 """
-first == torrent_name
-second == downloaded media dir / filename
+first == torrent_name in DB
+second == torrent_name when on complete is triggered by Transmission
 """
 
 
@@ -25,6 +25,18 @@ second == downloaded media dir / filename
             "Rick.and.Morty.S09E04.1080p.WEB.h264-EDITH[EZTVx.to].mkv",
             True,
             90.0,
+        ),
+        (
+            "Rick and Morty S09E05 Jer Bud 1080p AMZN WEB-DL DDP5 1 H 264-FLUX",
+            "www.UIndex.org    -    Rick and Morty S09E05 Jer Bud 1080p AMZN WEB-DL DDP5 1 H 264-FLUX",
+            True,
+            89.0,
+        ),
+        (
+            "Rick and Morty S09E05 1080p AMZN WEB-DL DDP5 1 H 264-FLUX",
+            "www.UIndex.org    -    Rick and Morty S09E04 1080p AMZN WEB-DL DDP5 1 H 264-FLUX",
+            False,
+            89.0,
         ),
     ],
 )
