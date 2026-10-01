@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tam"
+version = "0.1.0"
+description = "Transmission automation: queue magnets, copy finished downloads, clean up seeds."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "transmission-rpc>=7.0",
+    "rapidfuzz>=3.14",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.12",
+]
+
+[project.scripts]
+tam = "tam.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["tam*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]  # long torrent names in test data

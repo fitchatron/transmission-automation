@@ -6,7 +6,7 @@ import subprocess
 import sys
 from utils.add_torrents_to_db import add_new_torrents_to_db
 from utils.transmission import add_torrent
-from utils.vpn import start_vpn, is_vpn_connected
+from tam.vpn import start_vpn, is_vpn_connected
 
 logging.basicConfig(
     level=logging.INFO,
