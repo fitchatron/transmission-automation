@@ -38,6 +38,36 @@ second == torrent_name when on complete is triggered by Transmission
             False,
             89.0,
         ),
+        (
+            "House.of.the.Dragon.S03E03.1080p.WEB.h264-ETHEL[EZTVx.to].mkv",
+            "House.of.the.Dragon.S03E03.1080p.WEB.h264-ETHEL[EZTVx.to].mkv",
+            False,
+            89.0,
+        ),
+        (
+            "www.UIndex.org    -    House of the Dragon S03E01 REPACK 1080p AMZN WEB-DL DDP5 1 Atmos H 264-FLUX",
+            "www.UIndex.org    -    House of the Dragon S03E01 REPACK 1080p AMZN WEB-DL DDP5 1 Atmos H 264-FLUX",
+            False,
+            89.0,
+        ),
+        (
+            "www.UIndex.org    -    House.of.the.Dragon.S03E02.1080p.WEB.h264-ETHEL",
+            "www.UIndex.org    -    House.of.the.Dragon.S03E02.1080p.WEB.h264-ETHEL",
+            False,
+            89.0,
+        ),
+        (
+            "Rick.and.Morty.S09E06.1080p.WEB.h264-EDITH[EZTVx.to].mkv",
+            "Rick.and.Morty.S09E06.1080p.WEB.h264-EDITH[EZTVx.to].mkv",
+            False,
+            89.0,
+        ),
+        (
+            "Rick.and.Morty.S09E07.1080p.WEB.h264-EDITH[EZTVx.to].mkv",
+            "Rick.and.Morty.S09E07.1080p.WEB.h264-EDITH[EZTVx.to].mkv",
+            False,
+            89.0,
+        ),
     ],
 )
 def test_is_string_match(first, second, expected_match, threshold):
