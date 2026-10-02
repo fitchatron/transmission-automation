@@ -1,6 +1,6 @@
 import logging
 from typing import Literal
-from utils.media import contains_term
+from tam.media import contains_term
 from utils.transmission import list_torrents
 from utils.db import get_connection
 

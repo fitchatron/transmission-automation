@@ -1,5 +1,6 @@
 import pytest
-from utils.media import is_string_match
+
+from tam.media import is_string_match
 
 """
 first == torrent_name in DB

@@ -1,5 +1,6 @@
 import pytest
-from utils.media import normalize
+
+from tam.media import normalize
 
 """
 first == torrent_name in DB
