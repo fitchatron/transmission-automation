@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from tam.media import find_metadata
 from utils.transmission import remove_torrent
 from utils.db import get_connection
 

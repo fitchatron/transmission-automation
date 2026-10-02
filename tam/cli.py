@@ -1,8 +1,11 @@
+import sqlite3
 from typing import Annotated
 
 import typer
 
+from tam import repo
 from tam.config import Settings
+from tam.db import get_connection, migrate
 from tam.log import setup_logging
 
 app = typer.Typer(help="Transmission automation.", no_args_is_help=True)
@@ -27,28 +30,112 @@ def _not_implemented(name: str):
     raise typer.Exit(1)
 
 
+TYPE_ALIASES = {"tv": "tv-show", "tv-show": "tv-show", "movie": "movie"}
+DEFAULT_MOVIE_DEST = "/Movies"
+
+
+def media_type(value: str) -> str:
+    try:
+        return TYPE_ALIASES[value.lower()]
+    except KeyError:
+        raise typer.BadParameter("must be one of: tv, tv-show, movie") from None
+
+
+def _connect(ctx: typer.Context) -> sqlite3.Connection:
+    """Open the database, bringing the schema up to date first."""
+    conn = get_connection(ctx.obj["settings"].db_path)
+    migrate(conn)
+    return conn
+
+
 @db_app.command("init")
-def db_init():
+def db_init(ctx: typer.Context):
     """Create or migrate the database schema."""
-    _not_implemented("db init")
+    settings: Settings = ctx.obj["settings"]
+    conn = get_connection(settings.db_path)
+    try:
+        before, after = migrate(conn)
+    finally:
+        conn.close()
+    if before == after:
+        typer.echo(f"{settings.db_path}: schema already at v{after}.")
+    else:
+        typer.echo(f"{settings.db_path}: migrated schema v{before} -> v{after}.")
 
 
 @media_app.command("add")
-def media_add(name: str, media_type: str, destination: str | None = None):
+def media_add(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Display title (also the match pattern).")],
+    type_: Annotated[str, typer.Argument(metavar="TYPE", help="tv | movie", parser=media_type)],
+    destination: Annotated[
+        str | None,
+        typer.Argument(
+            help=f"Destination dir. Required for tv; movies default to {DEFAULT_MOVIE_DEST}."
+        ),
+    ] = None,
+    pattern: Annotated[
+        str | None,
+        typer.Option(help="Match pattern if different from NAME ('.' matches any separator)."),
+    ] = None,
+):
     """Add a metadata row used to match torrents to a destination."""
-    _not_implemented("media add")
+    if destination is None:
+        if type_ == "tv-show":
+            raise typer.BadParameter("DESTINATION is required for tv", param_hint="DESTINATION")
+        destination = DEFAULT_MOVIE_DEST
+    pattern = pattern or name
+
+    conn = _connect(ctx)
+    try:
+        existing = [
+            row for row in repo.list_metadata(conn, type_) if row["match_pattern"] == pattern
+        ]
+        if existing:
+            typer.echo(
+                f"Active metadata #{existing[0]['id']} already uses pattern '{pattern}'.", err=True
+            )
+            raise typer.Exit(1)
+        metadata_id = repo.add_metadata(conn, name, type_, pattern, destination)
+    finally:
+        conn.close()
+    typer.echo(f"Added metadata #{metadata_id}: '{name}' ({type_}) -> {destination}")
 
 
 @media_app.command("list")
-def media_list():
+def media_list(
+    ctx: typer.Context,
+    all_: Annotated[bool, typer.Option("--all", help="Include disabled rows.")] = False,
+):
     """List metadata rows."""
-    _not_implemented("media list")
+    conn = _connect(ctx)
+    try:
+        rows = repo.list_metadata(conn, include_inactive=all_)
+    finally:
+        conn.close()
+    if not rows:
+        typer.echo("No metadata.")
+        return
+    typer.echo(f"{'ID':>4}  {'TYPE':<7}  {'ACTIVE':<6}  {'PATTERN':<30}  DESTINATION")
+    for row in rows:
+        typer.echo(
+            f"{row['id']:>4}  {row['type']:<7}  {'yes' if row['active'] else 'no':<6}  "
+            f"{row['match_pattern']:<30}  {row['destination_path']}"
+        )
 
 
 @media_app.command("disable")
-def media_disable(metadata_id: int):
+def media_disable(ctx: typer.Context, metadata_id: int):
     """Deactivate a metadata row."""
-    _not_implemented("media disable")
+    conn = _connect(ctx)
+    try:
+        found = repo.set_metadata_active(conn, metadata_id, False)
+    finally:
+        conn.close()
+    if not found:
+        typer.echo(f"No metadata with id {metadata_id}.", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Disabled metadata #{metadata_id}.")
 
 
 @app.command()
