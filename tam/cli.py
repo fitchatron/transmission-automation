@@ -7,6 +7,10 @@ from tam import repo
 from tam.config import Settings
 from tam.db import get_connection, migrate
 from tam.log import setup_logging
+from tam.queue import QUEUE_FILES, QueueLocked, queue_lock, read_queue, rewrite_queue
+from tam.start import FAILED, StartResult, start_queue
+from tam.transmission import Transmission, TransmissionUnavailable
+from tam.vpn import ensure_vpn
 
 app = typer.Typer(help="Transmission automation.", no_args_is_help=True)
 db_app = typer.Typer(help="Database management.", no_args_is_help=True)
@@ -139,9 +143,60 @@ def media_disable(ctx: typer.Context, metadata_id: int):
 
 
 @app.command()
-def start():
-    """Add the magnets queued in tv.txt and movies.txt."""
-    _not_implemented("start")
+def start(ctx: typer.Context):
+    """Add the magnets queued in tv.txt and movies.txt (one magnet per line)."""
+    settings: Settings = ctx.obj["settings"]
+    log = ctx.obj["log"]
+
+    try:
+        with queue_lock(settings.queue_dir):
+            results = _run_start(ctx, settings, log)
+    except QueueLocked as error:
+        typer.echo(f"Skipping: {error}.")
+        return
+
+    if results is None:
+        return
+    for result in results:
+        label = result.name or result.hash or result.entry.magnet[:60]
+        detail = f"  ({result.error})" if result.error else ""
+        typer.echo(f"{result.outcome:<8} {result.entry.type:<8} {label}{detail}")
+    if any(r.outcome == FAILED for r in results):
+        raise typer.Exit(1)
+
+
+def _run_start(ctx: typer.Context, settings: Settings, log) -> list[StartResult] | None:
+    paths = {settings.queue_dir / name: type_ for name, type_ in QUEUE_FILES.items()}
+    entries = [entry for path, type_ in paths.items() for entry in read_queue(path, type_)]
+    if not entries:
+        typer.echo(f"Queue empty ({', '.join(QUEUE_FILES)} in {settings.queue_dir}).")
+        return None
+
+    if not ensure_vpn():
+        log.error("VPN not connected; queue left untouched")
+        typer.echo("VPN is not connected; nothing added.", err=True)
+        raise typer.Exit(1)
+    try:
+        tm = Transmission.connect(settings)
+    except TransmissionUnavailable as error:
+        log.error("%s", error)
+        typer.echo(f"{error}; nothing added.", err=True)
+        raise typer.Exit(1) from None
+
+    conn = _connect(ctx)
+    try:
+        results = start_queue(conn, tm, entries, settings.metadata_timeout, log)
+    finally:
+        conn.close()
+
+    for path in paths:
+        mine = [r for r in results if r.entry.path == path]
+        rewrite_queue(
+            path,
+            processed={r.entry.magnet for r in mine},
+            failures={r.entry.magnet: r.error for r in mine if r.outcome == FAILED},
+        )
+    return results
 
 
 @app.command("on-done")

@@ -1,7 +1,12 @@
+import sqlite3
+
 import pytest
 from typer.testing import CliRunner
 
+from tam import cli
 from tam.cli import app
+from tam.transmission import Transmission
+from tests.fakes import HASH, FakeClient, magnet
 
 runner = CliRunner()
 
@@ -11,6 +16,8 @@ def isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TAM_ENV_FILE", str(tmp_path / "none.env"))
     monkeypatch.setenv("TAM_LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("TAM_DB_PATH", str(tmp_path / "tam.db"))
+    monkeypatch.setenv("TAM_QUEUE_DIR", str(tmp_path / "queue"))
+    monkeypatch.setenv("TAM_METADATA_TIMEOUT", "0")
 
 
 def invoke(*args):
@@ -67,3 +74,49 @@ def test_media_add_validation():
 
 def test_media_disable_unknown_id():
     assert invoke("media", "disable", "42").exit_code == 1
+
+
+@pytest.fixture
+def queue_dir(tmp_path):
+    path = tmp_path / "queue"
+    path.mkdir()
+    return path
+
+
+def test_start_empty_queue(queue_dir):
+    result = invoke("start")
+
+    assert result.exit_code == 0
+    assert "Queue empty" in result.output
+
+
+def test_start_vpn_down_leaves_queue_untouched(monkeypatch, queue_dir):
+    (queue_dir / "tv.txt").write_text(magnet() + "\n")
+    monkeypatch.setattr(cli, "ensure_vpn", lambda: False)
+
+    result = invoke("start")
+
+    assert result.exit_code == 1
+    assert (queue_dir / "tv.txt").read_text() == magnet() + "\n"
+
+
+def test_start_end_to_end(monkeypatch, tmp_path, queue_dir):
+    client = FakeClient()
+    other = "b" * 40
+    (queue_dir / "tv.txt").write_text(f"# shows\n{magnet()}\nnot-a-magnet\n")
+    (queue_dir / "movies.txt").write_text(magnet(other) + "\n")
+    monkeypatch.setattr(cli, "ensure_vpn", lambda: True)
+    monkeypatch.setattr(Transmission, "connect", classmethod(lambda cls, s: cls(client)))
+
+    result = invoke("start")
+
+    assert result.exit_code == 1  # the junk line failed
+    tv = (queue_dir / "tv.txt").read_text().splitlines()
+    assert tv[0] == "# shows"
+    assert tv[1] == "not-a-magnet"
+    assert tv[2].startswith("# error: no btih")
+    assert (queue_dir / "movies.txt").read_text() == ""
+
+    conn = sqlite3.connect(tmp_path / "tam.db")
+    rows = conn.execute("SELECT hash, type FROM torrents ORDER BY hash").fetchall()
+    assert rows == [(other, "movie"), (HASH, "tv-show")]
