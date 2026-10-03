@@ -8,6 +8,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from tam import repo
+from tam.cleanup import cleanup as run_cleanup
 from tam.config import Settings
 from tam.copy import COPIED, UNTRACKED, CopyResult, copy_torrent
 from tam.copy import FAILED as COPY_FAILED
@@ -15,6 +16,7 @@ from tam.db import TORRENT_STATUSES, get_connection, migrate
 from tam.log import setup_logging
 from tam.queue import QUEUE_FILES, QueueLocked, queue_lock, read_queue, rewrite_queue
 from tam.start import FAILED, StartResult, start_queue
+from tam.sync import SyncReport
 from tam.sync import sync as run_sync
 from tam.transmission import Transmission, TransmissionUnavailable
 from tam.vpn import ensure_vpn
@@ -34,11 +36,6 @@ def main(
     settings = Settings.from_env()
     command = ctx.invoked_subcommand or "tam"
     ctx.obj = {"settings": settings, "log": setup_logging(settings.log_dir, command, verbose)}
-
-
-def _not_implemented(name: str):
-    typer.echo(f"`tam {name}` is not implemented yet.", err=True)
-    raise typer.Exit(1)
 
 
 TYPE_ALIASES = {"tv": "tv-show", "tv-show": "tv-show", "movie": "movie"}
@@ -278,6 +275,12 @@ def sync(
     finally:
         conn.close()
 
+    _print_sync(report)
+    if any(result.outcome == COPY_FAILED for _, result in report.copies):
+        raise typer.Exit(1)
+
+
+def _print_sync(report: SyncReport) -> None:
     typer.echo(f"Checked {report.checked} tracked torrent(s).")
     for change in report.changes:
         typer.echo(f"  {change.old:>11} -> {change.new:<11} {change.name or change.hash}")
@@ -288,14 +291,42 @@ def sync(
         typer.echo(f"{len(report.untracked)} torrent(s) in Transmission not tracked by tam:")
         for info in report.untracked:
             typer.echo(f"  {info.hash}  {info.name}")
-    if any(result.outcome == COPY_FAILED for _, result in report.copies):
-        raise typer.Exit(1)
 
 
 @app.command()
-def cleanup(dry_run: Annotated[bool, typer.Option("--dry-run")] = False):
-    """Remove torrents that finished seeding and were copied."""
-    _not_implemented("cleanup")
+def cleanup(
+    ctx: typer.Context,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what would be removed; change nothing.")
+    ] = False,
+):
+    """Sync, then remove copied torrents (and their data) that finished seeding."""
+    settings: Settings = ctx.obj["settings"]
+    tm = _transmission(ctx)
+    conn = _connect(ctx)
+    try:
+        report = run_cleanup(conn, tm, settings, ctx.obj["log"], dry_run=dry_run)
+    finally:
+        conn.close()
+
+    _print_sync(report.sync)
+    if not report.seed_limits_configured:
+        typer.echo(
+            "Warning: Transmission has no seed ratio or idle limit enabled, so torrents "
+            "may never finish seeding. Set them in Transmission's preferences.",
+            err=True,
+        )
+    verb = "Would remove" if dry_run else "Removed"
+    typer.echo(f"{verb} {len(report.removed)} finished torrent(s) and their data:")
+    for hash_, name in report.removed:
+        typer.echo(f"  {name or hash_}")
+    if report.still_seeding:
+        typer.echo(f"{report.still_seeding} copied torrent(s) still seeding.")
+    for hash_, error in report.errors:
+        typer.echo(f"Failed to remove {hash_}: {error}", err=True)
+    copy_failed = any(r.outcome == COPY_FAILED for _, r in report.sync.copies)
+    if report.errors or copy_failed:
+        raise typer.Exit(1)
 
 
 STATUS_STYLES = {

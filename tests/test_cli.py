@@ -32,10 +32,6 @@ def test_help_lists_commands():
         assert command in result.output
 
 
-def test_stub_exits_nonzero():
-    assert invoke("cleanup").exit_code == 1
-
-
 def test_db_init_then_already_current():
     first = invoke("db", "init")
     second = invoke("db", "init")
@@ -203,3 +199,31 @@ def test_status_empty():
 
     assert result.exit_code == 0
     assert "No tracked torrents" in result.output
+
+
+def test_cleanup_dry_run_then_real(monkeypatch, tmp_path):
+    client = FakeClient()
+    client.torrents[HASH] = torrent_fields(
+        name="Done.Show", metadataPercentComplete=1.0, percentDone=1.0, isFinished=True
+    )
+    monkeypatch.setattr(Transmission, "connect", classmethod(lambda cls, s: cls(client)))
+    assert invoke("db", "init").exit_code == 0
+    conn = sqlite3.connect(tmp_path / "tam.db")
+    conn.execute(
+        "INSERT INTO torrents (hash, type, name, status) VALUES (?, 'tv-show', 'Done.Show', 'copied')",
+        (HASH,),
+    )
+    conn.commit()
+
+    dry = invoke("cleanup", "--dry-run")
+    assert dry.exit_code == 0, dry.output
+    assert "Would remove 1" in dry.output and "Done.Show" in dry.output
+    assert "no seed ratio or idle limit" in dry.output
+    assert client.removed == []
+
+    real = invoke("cleanup")
+    assert real.exit_code == 0, real.output
+    assert "Removed 1" in real.output
+    assert client.removed == [(HASH, True)]
+    status = conn.execute("SELECT status FROM torrents WHERE hash = ?", (HASH,)).fetchone()
+    assert status == ("removed",)
