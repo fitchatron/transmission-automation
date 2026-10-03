@@ -3,15 +3,19 @@ import sqlite3
 from typing import Annotated
 
 import typer
+from rich.console import Console
+from rich.markup import escape
+from rich.table import Table
 
 from tam import repo
 from tam.config import Settings
 from tam.copy import COPIED, UNTRACKED, CopyResult, copy_torrent
 from tam.copy import FAILED as COPY_FAILED
-from tam.db import get_connection, migrate
+from tam.db import TORRENT_STATUSES, get_connection, migrate
 from tam.log import setup_logging
 from tam.queue import QUEUE_FILES, QueueLocked, queue_lock, read_queue, rewrite_queue
 from tam.start import FAILED, StartResult, start_queue
+from tam.sync import sync as run_sync
 from tam.transmission import Transmission, TransmissionUnavailable
 from tam.vpn import ensure_vpn
 
@@ -168,6 +172,16 @@ def start(ctx: typer.Context):
         raise typer.Exit(1)
 
 
+def _transmission(ctx: typer.Context, note: str = "") -> Transmission:
+    """Connect to Transmission or exit 1 with a one-line error."""
+    try:
+        return Transmission.connect(ctx.obj["settings"])
+    except TransmissionUnavailable as error:
+        ctx.obj["log"].error("%s", error)
+        typer.echo(f"{error}{note}", err=True)
+        raise typer.Exit(1) from None
+
+
 def _run_start(ctx: typer.Context, settings: Settings, log) -> list[StartResult] | None:
     paths = {settings.queue_dir / name: type_ for name, type_ in QUEUE_FILES.items()}
     entries = [entry for path, type_ in paths.items() for entry in read_queue(path, type_)]
@@ -179,12 +193,7 @@ def _run_start(ctx: typer.Context, settings: Settings, log) -> list[StartResult]
         log.error("VPN not connected; queue left untouched")
         typer.echo("VPN is not connected; nothing added.", err=True)
         raise typer.Exit(1)
-    try:
-        tm = Transmission.connect(settings)
-    except TransmissionUnavailable as error:
-        log.error("%s", error)
-        typer.echo(f"{error}; nothing added.", err=True)
-        raise typer.Exit(1) from None
+    tm = _transmission(ctx, "; nothing added.")
 
     conn = _connect(ctx)
     try:
@@ -205,12 +214,7 @@ def _run_start(ctx: typer.Context, settings: Settings, log) -> list[StartResult]
 def _copy(ctx: typer.Context, torrent_hash: str) -> CopyResult:
     settings: Settings = ctx.obj["settings"]
     log = ctx.obj["log"]
-    try:
-        tm = Transmission.connect(settings)
-    except TransmissionUnavailable as error:
-        log.error("%s", error)
-        typer.echo(str(error), err=True)
-        raise typer.Exit(1) from None
+    tm = _transmission(ctx)
 
     conn = _connect(ctx)
     try:
@@ -256,9 +260,36 @@ def copy(
 
 
 @app.command()
-def sync():
+def sync(
+    ctx: typer.Context,
+    copy_pending: Annotated[
+        bool,
+        typer.Option(
+            "--copy-pending", help="Also copy torrents that finished but were never copied."
+        ),
+    ] = False,
+):
     """Bring the database up to date with Transmission."""
-    _not_implemented("sync")
+    settings: Settings = ctx.obj["settings"]
+    tm = _transmission(ctx)
+    conn = _connect(ctx)
+    try:
+        report = run_sync(conn, tm, ctx.obj["log"], settings, copy_pending=copy_pending)
+    finally:
+        conn.close()
+
+    typer.echo(f"Checked {report.checked} tracked torrent(s).")
+    for change in report.changes:
+        typer.echo(f"  {change.old:>11} -> {change.new:<11} {change.name or change.hash}")
+    for hash_, result in report.copies:
+        detail = result.destination if result.outcome == COPIED else result.error
+        typer.echo(f"  copy {result.outcome:<9} {hash_}  {detail}")
+    if report.untracked:
+        typer.echo(f"{len(report.untracked)} torrent(s) in Transmission not tracked by tam:")
+        for info in report.untracked:
+            typer.echo(f"  {info.hash}  {info.name}")
+    if any(result.outcome == COPY_FAILED for _, result in report.copies):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -267,7 +298,47 @@ def cleanup(dry_run: Annotated[bool, typer.Option("--dry-run")] = False):
     _not_implemented("cleanup")
 
 
+STATUS_STYLES = {
+    "copied": "green",
+    "removed": "dim",
+    "failed": "red",
+    "missing": "yellow",
+    "downloaded": "cyan",
+}
+
+
 @app.command()
-def status():
-    """Show tracked torrents and their state."""
-    _not_implemented("status")
+def status(
+    ctx: typer.Context,
+    all_: Annotated[bool, typer.Option("--all", help="Include removed torrents.")] = False,
+):
+    """Show tracked torrents and their state (as of the last sync)."""
+    conn = _connect(ctx)
+    try:
+        statuses = None if all_ else [s for s in TORRENT_STATUSES if s != "removed"]
+        rows = repo.list_torrents(conn, statuses)
+        destinations = {
+            m["id"]: m["destination_path"] for m in repo.list_metadata(conn, include_inactive=True)
+        }
+    finally:
+        conn.close()
+
+    if not rows:
+        typer.echo("No tracked torrents.")
+        return
+    table = Table(box=None, header_style="bold")
+    for column in ("Status", "Type", "Done", "Name", "Destination", "Hash"):
+        table.add_column(column, no_wrap=column in ("Status", "Hash"))
+    for row in rows:
+        style = STATUS_STYLES.get(row["status"], "")
+        table.add_row(
+            f"[{style}]{row['status']}[/]" if style else row["status"],
+            row["type"],
+            f"{row['percent_done'] * 100:.0f}%",
+            escape(row["name"] or "(resolving)"),
+            escape(destinations.get(row["metadata_id"], "(default)")),
+            row["hash"][:8],
+        )
+        if row["status"] == "failed" and row["error"]:
+            table.add_row("", "", "", f"[red]{escape(row['error'])}[/]", "", "")
+    Console().print(table)

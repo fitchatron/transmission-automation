@@ -33,7 +33,7 @@ def test_help_lists_commands():
 
 
 def test_stub_exits_nonzero():
-    assert invoke("sync").exit_code == 1
+    assert invoke("cleanup").exit_code == 1
 
 
 def test_db_init_then_already_current():
@@ -170,3 +170,36 @@ def test_copy_untracked_hash_is_a_noop(monkeypatch):
 
     assert result.exit_code == 0
     assert "not tracked" in result.output
+
+
+def test_sync_and_status(monkeypatch, tmp_path):
+    client = FakeClient()
+    other = "c" * 40
+    client.torrents[HASH] = torrent_fields(
+        name="Show.S01E01[EZTVx.to]", metadataPercentComplete=1.0, percentDone=0.5
+    )
+    client.torrents[other] = torrent_fields(other, id=2, name="Not.Ours")
+    monkeypatch.setattr(Transmission, "connect", classmethod(lambda cls, s: cls(client)))
+    assert invoke("db", "init").exit_code == 0
+    conn = sqlite3.connect(tmp_path / "tam.db")
+    conn.execute("INSERT INTO torrents (hash, type) VALUES (?, 'tv-show')", (HASH,))
+    conn.commit()
+
+    synced = invoke("sync")
+
+    assert synced.exit_code == 0, synced.output
+    assert "added -> downloading" in synced.output
+    assert "not tracked by tam" in synced.output and "Not.Ours" in synced.output
+
+    shown = invoke("status")
+    assert shown.exit_code == 0, shown.output
+    assert "Show.S01E01[EZTVx.to]" in shown.output  # brackets survive rich markup
+    assert "50%" in shown.output and "downloading" in shown.output
+    assert "Not.Ours" not in shown.output
+
+
+def test_status_empty():
+    result = invoke("status")
+
+    assert result.exit_code == 0
+    assert "No tracked torrents" in result.output
