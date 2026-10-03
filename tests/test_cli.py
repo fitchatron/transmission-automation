@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 from tam import cli
 from tam.cli import app
 from tam.transmission import Transmission
-from tests.fakes import HASH, FakeClient, magnet
+from tests.fakes import HASH, FakeClient, magnet, torrent_fields
 
 runner = CliRunner()
 
@@ -120,3 +120,53 @@ def test_start_end_to_end(monkeypatch, tmp_path, queue_dir):
     conn = sqlite3.connect(tmp_path / "tam.db")
     rows = conn.execute("SELECT hash, type FROM torrents ORDER BY hash").fetchall()
     assert rows == [(other, "movie"), (HASH, "tv-show")]
+
+
+def test_on_done_without_hash_exits_nonzero(monkeypatch):
+    monkeypatch.delenv("TR_TORRENT_HASH", raising=False)
+
+    result = invoke("on-done")
+
+    assert result.exit_code == 1
+    assert "TR_TORRENT_HASH" in result.output
+
+
+def test_on_done_copies_by_hash(monkeypatch, tmp_path):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    (downloads / "Some.Movie.2024.mkv").write_bytes(b"movie")
+    incoming = tmp_path / "Incoming"
+    incoming.mkdir()
+    monkeypatch.setenv("TAM_DEFAULT_DEST", str(incoming))
+
+    client = FakeClient()
+    client.torrents[HASH] = torrent_fields(
+        name="Some.Movie.2024",
+        metadataPercentComplete=1.0,
+        downloadDir=str(downloads),
+        files=[{"name": "Some.Movie.2024.mkv", "length": 5, "bytesCompleted": 5}],
+        priorities=[0],
+        wanted=[True],
+    )
+    monkeypatch.setattr(Transmission, "connect", classmethod(lambda cls, s: cls(client)))
+    assert invoke("db", "init").exit_code == 0
+    conn = sqlite3.connect(tmp_path / "tam.db")
+    conn.execute("INSERT INTO torrents (hash, type) VALUES (?, 'movie')", (HASH,))
+    conn.commit()
+
+    monkeypatch.setenv("TR_TORRENT_HASH", HASH.upper())
+    result = invoke("on-done")
+
+    assert result.exit_code == 0, result.output
+    assert (incoming / "Some.Movie.2024.mkv").read_bytes() == b"movie"
+    status = conn.execute("SELECT status FROM torrents WHERE hash = ?", (HASH,)).fetchone()
+    assert status == ("copied",)
+
+
+def test_copy_untracked_hash_is_a_noop(monkeypatch):
+    monkeypatch.setattr(Transmission, "connect", classmethod(lambda cls, s: cls(FakeClient())))
+
+    result = invoke("copy", HASH)
+
+    assert result.exit_code == 0
+    assert "not tracked" in result.output

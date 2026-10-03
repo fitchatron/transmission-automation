@@ -50,6 +50,10 @@ def list_metadata(
     return conn.execute(query + " ORDER BY id", params).fetchall()
 
 
+def get_metadata(conn: sqlite3.Connection, metadata_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM metadata WHERE id = ?", (metadata_id,)).fetchone()
+
+
 def set_metadata_active(conn: sqlite3.Connection, metadata_id: int, active: bool) -> bool:
     """Returns False if no row has that id."""
     with conn:

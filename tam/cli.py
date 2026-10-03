@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from typing import Annotated
 
@@ -5,6 +6,8 @@ import typer
 
 from tam import repo
 from tam.config import Settings
+from tam.copy import COPIED, UNTRACKED, CopyResult, copy_torrent
+from tam.copy import FAILED as COPY_FAILED
 from tam.db import get_connection, migrate
 from tam.log import setup_logging
 from tam.queue import QUEUE_FILES, QueueLocked, queue_lock, read_queue, rewrite_queue
@@ -199,16 +202,57 @@ def _run_start(ctx: typer.Context, settings: Settings, log) -> list[StartResult]
     return results
 
 
+def _copy(ctx: typer.Context, torrent_hash: str) -> CopyResult:
+    settings: Settings = ctx.obj["settings"]
+    log = ctx.obj["log"]
+    try:
+        tm = Transmission.connect(settings)
+    except TransmissionUnavailable as error:
+        log.error("%s", error)
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from None
+
+    conn = _connect(ctx)
+    try:
+        result = copy_torrent(conn, tm, settings, torrent_hash.strip().lower(), log)
+    finally:
+        conn.close()
+
+    if result.outcome == UNTRACKED:
+        typer.echo(f"{torrent_hash} is not tracked by tam; nothing to do.")
+    elif result.outcome == COPIED:
+        typer.echo(
+            f"Copied {len(result.copied)} file(s) to {result.destination}"
+            + (f" ({len(result.skipped)} already there)" if result.skipped else "")
+        )
+    else:
+        typer.echo(f"Copy failed: {result.error}", err=True)
+    return result
+
+
 @app.command("on-done")
-def on_done():
-    """Transmission completion hook (reads TR_TORRENT_HASH)."""
-    _not_implemented("on-done")
+def on_done(ctx: typer.Context):
+    """Transmission completion hook: copies the torrent named by TR_TORRENT_HASH."""
+    torrent_hash = os.environ.get("TR_TORRENT_HASH", "").strip()
+    if not torrent_hash:
+        ctx.obj["log"].error("on-done called without TR_TORRENT_HASH")
+        typer.echo("TR_TORRENT_HASH is not set; is this running from Transmission?", err=True)
+        raise typer.Exit(1)
+    ctx.obj["log"].info(
+        "Torrent done: %s (%s)", os.environ.get("TR_TORRENT_NAME", "?"), torrent_hash
+    )
+    if _copy(ctx, torrent_hash).outcome == COPY_FAILED:
+        raise typer.Exit(1)
 
 
 @app.command()
-def copy(torrent_hash: str):
-    """Copy a finished torrent's video files to their destination."""
-    _not_implemented("copy")
+def copy(
+    ctx: typer.Context,
+    torrent_hash: Annotated[str, typer.Argument(help="Info-hash of the torrent.")],
+):
+    """Copy a finished torrent's video files to their destination (retry a failed copy)."""
+    if _copy(ctx, torrent_hash).outcome == COPY_FAILED:
+        raise typer.Exit(1)
 
 
 @app.command()
