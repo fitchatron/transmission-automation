@@ -18,6 +18,22 @@ This installs `tam` at `/opt/media-automation/.venv/bin/tam`, with the exact ver
 
 To update: `git pull`, then run the same `uv sync` command again.
 
+If the repo itself is cloned at `/opt/media-automation`, that is already uv's default `.venv` location, so `UV_PROJECT_ENVIRONMENT` is optional. Your database, `logs/` and `queue/` then live inside the checkout; git ignores them all.
+
+### Putting `tam` on your PATH
+
+The venv's `bin` folder isn't on your PATH, so a bare `tam` won't be found. Link it into a folder that is:
+
+```bash
+sudo ln -s /opt/media-automation/.venv/bin/tam /usr/local/bin/tam
+```
+
+The link survives `uv sync` and works for every user. Alternatively, add `export PATH="/opt/media-automation/.venv/bin:$PATH"` to your `~/.bashrc`.
+
+Avoid plain `uv run tam …` on the server: `uv run` syncs the dev tools (pytest, ruff) into the venv first. If you want to use it, run `uv run --no-dev tam …`.
+
+Keep the full path in cron and in `scripts/transmission-done.sh`, because they run with a minimal PATH.
+
 `tam db init` creates the database, or upgrades an existing one in place. If you're upgrading from the old scripts, the old `torrents` table is kept as `torrents_legacy` and your `metadata` rows are kept as they are. Every other command also brings the schema up to date before it runs.
 
 <details>
