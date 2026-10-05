@@ -16,7 +16,7 @@ dependencies = [
     "rich>=13",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.12",

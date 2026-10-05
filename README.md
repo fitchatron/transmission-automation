@@ -6,15 +6,30 @@ Every torrent is tracked by its **info-hash**, which never changes, rather than 
 
 ## Install
 
-Needs Python 3.12+, a running `transmission-daemon` with RPC enabled, and `nordvpn` (the VPN is required before anything is added).
+Needs [uv](https://docs.astral.sh/uv/), a running `transmission-daemon` with RPC enabled, and `nordvpn` (the VPN is required before anything is added). uv fetches Python 3.12+ itself if the system doesn't have it.
+
+```bash
+cd /path/to/transmission-automation
+UV_PROJECT_ENVIRONMENT=/opt/media-automation/.venv uv sync --no-dev --frozen
+/opt/media-automation/.venv/bin/tam db init
+```
+
+This installs `tam` at `/opt/media-automation/.venv/bin/tam`, with the exact versions pinned in `uv.lock`. The hook script and the cron lines below use that path.
+
+To update: `git pull`, then run the same `uv sync` command again.
+
+`tam db init` creates the database, or upgrades an existing one in place. If you're upgrading from the old scripts, the old `torrents` table is kept as `torrents_legacy` and your `metadata` rows are kept as they are. Every other command also brings the schema up to date before it runs.
+
+<details>
+<summary>Without uv</summary>
 
 ```bash
 python3.12 -m venv /opt/media-automation/.venv
 /opt/media-automation/.venv/bin/pip install -e /path/to/transmission-automation
-/opt/media-automation/.venv/bin/tam db init
 ```
 
-`tam db init` creates the database, or upgrades an existing one in place. If you're upgrading from the old scripts, the old `torrents` table is kept as `torrents_legacy` and your `metadata` rows are kept as they are. Every other command also brings the schema up to date before it runs.
+This doesn't use the lockfile, so you get the newest versions allowed by `pyproject.toml`.
+</details>
 
 ## Configuration
 
@@ -117,9 +132,12 @@ Both commands exit non-zero when something fails, so cron will email you. Overla
 ## Development
 
 ```bash
-python3.12 -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest
-.venv/bin/ruff check . && .venv/bin/ruff format --check .
+uv sync                      # creates ./.venv with the dev tools (pytest, ruff)
+uv run pytest
+uv run ruff check . && uv run ruff format --check .
+uv run tam --help            # run the CLI from the checkout
 ```
+
+After changing dependencies in `pyproject.toml`, run `uv lock` and commit `uv.lock`.
 
 The tests use a fake Transmission client and temporary directories, so they need neither Transmission nor the VPN.
