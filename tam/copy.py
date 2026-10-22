@@ -38,22 +38,22 @@ def video_files(files: list[TorrentFile], video_exts: frozenset[str]) -> list[To
     ]
 
 
-def _destination(conn: sqlite3.Connection, row, settings: Settings, log: logging.Logger) -> Path:
+def _destination(conn: sqlite3.Connection, row) -> Path | None:
+    """The matched metadata's destination, or None if the torrent matched nothing."""
     metadata = repo.get_metadata(conn, row["metadata_id"]) if row["metadata_id"] else None
-    if metadata is not None:
-        dest = Path(metadata["destination_path"])
-        if dest.is_dir():
-            return dest
-        log.warning("Destination %s does not exist; using %s", dest, settings.default_dest)
-    if not settings.default_dest.is_dir():
-        raise CopyError(f"default destination {settings.default_dest} does not exist")
-    return settings.default_dest
+    return Path(metadata["destination_path"]) if metadata is not None else None
 
 
 def _copy_file(source: Path, dest_dir: Path) -> bool:
-    """Copy via a .part file then rename. Returns False if an identical-size copy exists."""
+    """
+    Copy via a .part file then rename, and confirm the result.
+
+    Returns False if a same-size copy is already there. Raises CopyError if
+    the file isn't at the destination with the source's size afterwards.
+    """
     target = dest_dir / source.name
-    if target.exists() and target.stat().st_size == source.stat().st_size:
+    expected = source.stat().st_size
+    if target.exists() and target.stat().st_size == expected:
         return False
     partial = target.with_name(target.name + ".part")
     try:
@@ -62,6 +62,8 @@ def _copy_file(source: Path, dest_dir: Path) -> bool:
     except BaseException:
         partial.unlink(missing_ok=True)
         raise
+    if not target.is_file() or target.stat().st_size != expected:
+        raise CopyError(f"{target} missing or incomplete after copy")
     return True
 
 
@@ -103,12 +105,17 @@ def copy_torrent(
         if incomplete:
             raise CopyError(f"not fully downloaded: {', '.join(incomplete)}")
 
-        dest = _destination(conn, row, settings, log)
+        # A matched destination that's unavailable (e.g. the share isn't
+        # mounted) fails the copy so it can be retried, rather than quietly
+        # sending the files somewhere else.
+        dest = _destination(conn, row) or settings.default_dest
+        if not dest.is_dir():
+            raise CopyError(f"destination {dest} is not available (missing or not mounted)")
         result = CopyResult(COPIED, destination=dest)
         for video in videos:
             if _copy_file(video.path, dest):
                 result.copied.append(video.path)
-                log.info("Copied %s -> %s", video.path, dest)
+                log.info("Copied %s -> %s", video.path, dest / video.path.name)
             else:
                 result.skipped.append(video.path)
                 log.info("Already at destination: %s", dest / video.path.name)

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -179,14 +180,50 @@ def test_unmatched_uses_default_destination(conn, client, settings, downloads):
     assert (settings.default_dest / "Some.Movie.2024.mkv").exists()
 
 
-def test_missing_metadata_destination_falls_back(conn, client, settings, downloads, tv_dest):
+def test_unavailable_destination_fails_instead_of_falling_back(
+    conn, client, settings, downloads, tv_dest
+):
+    """Regression: a missing target (e.g. share not mounted) used to copy to the default
+    destination and still report `copied`."""
     add_download(client, downloads, {"Rick.and.Morty.S09E04.mkv": b"video"})
     track(conn)
     tv_dest.rmdir()
 
     result = run(conn, client, settings)
 
-    assert result.destination == settings.default_dest
+    assert result.outcome == FAILED
+    assert str(tv_dest) in result.error and "not available" in result.error
+    row = repo.get_torrent(conn, HASH)
+    assert row["status"] == "failed" and row["copied_at"] is None
+    assert list(settings.default_dest.iterdir()) == []  # nothing went to the fallback
+
+
+def test_unavailable_default_destination_fails(conn, client, settings, downloads):
+    add_download(client, downloads, {"Some.Movie.2024.mkv": b"m"}, name="Some.Movie.2024")
+    track(conn, name="Some.Movie.2024", type_="movie")
+    settings.default_dest.rmdir()
+
+    result = run(conn, client, settings)
+
+    assert result.outcome == FAILED
+    assert "not available" in result.error
+
+
+def test_copy_that_does_not_land_fails(conn, client, settings, downloads, tv_dest, monkeypatch):
+    """The copy is checked afterwards: a truncated or vanished file is a failure, not `copied`."""
+    add_download(client, downloads, {"Rick.and.Morty.S09E04.mkv": b"video"})
+    track(conn)
+
+    def truncating_copy(src, dst):
+        Path(dst).write_bytes(b"vi")
+
+    monkeypatch.setattr("tam.copy.shutil.copy2", truncating_copy)
+
+    result = run(conn, client, settings)
+
+    assert result.outcome == FAILED
+    assert "missing or incomplete" in result.error
+    assert repo.get_torrent(conn, HASH)["status"] == "failed"
 
 
 def test_pending_row_gets_name_and_metadata_filled_in(conn, client, settings, downloads, tv_dest):
