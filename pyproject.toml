@@ -13,9 +13,10 @@ dependencies = [
     "transmission-rpc>=7.0",
     "rapidfuzz>=3.14",
     "python-dotenv>=1.0",
+    "rich>=13",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.12",

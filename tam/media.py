@@ -1,9 +1,7 @@
 import re
-from pathlib import Path
+import sqlite3
 
 from rapidfuzz import fuzz
-
-DEFAULT_DEST = Path("/mnt/ds223j/incoming")
 
 
 def normalize(text: str) -> str:
@@ -55,26 +53,12 @@ def contains_term(term: str, text: str) -> bool:
     return re.search(pattern, text) is not None
 
 
-def find_metadata(conn, normalized_title: str, type_: str):
+def match_metadata(conn: sqlite3.Connection, name: str, type_: str) -> sqlite3.Row | None:
     """
-    Find the first metadata row matching a normalized torrent title.
-
-    Looks up active metadata candidates by type and returns a tuple of
-    (metadata_id, destination_path) when a row's match pattern is contained in
-    the normalized title. If no row matches, falls back to the default
-    destination and a None metadata_id.
+    Return the first active metadata row of this type whose match pattern
+    appears in the torrent name (see contains_term), or None.
     """
-    cursor = conn.execute(
-        """
-        SELECT id, match_pattern, destination
-        FROM metadata
-        WHERE type = ?
-    """,
-        (type_,),
-    )
-
-    for metadata_id, pattern, dest in cursor.fetchall():
-        if pattern in normalized_title:
-            return metadata_id, Path(dest)
-
-    return None, DEFAULT_DEST
+    rows = conn.execute(
+        "SELECT * FROM metadata WHERE type = ? AND active = 1 ORDER BY id", (type_,)
+    ).fetchall()
+    return next((row for row in rows if contains_term(row["match_pattern"], name)), None)
