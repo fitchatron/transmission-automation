@@ -59,6 +59,7 @@ Settings are read from environment variables. `tam` also loads `/opt/media-autom
 | `TAM_DEFAULT_DEST` | `/mnt/ds223j/Incoming` | Destination for torrents that match no metadata |
 | `TAM_METADATA_TIMEOUT` | `120` | Seconds `tam start` waits for torrent names to resolve |
 | `TAM_VIDEO_EXTS` | `.mp4,.mkv` | File types that get copied |
+| `TAM_IDLE_DISCONNECT` | `true` | Disconnect the VPN and restart rpi-connect once the last torrent is removed (see below) |
 | `TRANSMISSION_HOST` / `TRANSMISSION_PORT` | `localhost` / `9091` | Transmission RPC |
 | `TRANSMISSION_USER` / `TRANSMISSION_PASS` | unset | RPC credentials, if enabled |
 
@@ -116,6 +117,17 @@ tam cleanup                 # sync, copy pending, then remove finished seeds and
 ```
 
 `tam cleanup` only removes torrents that were **copied** and that Transmission reports as finished, meaning they reached the seed ratio or idle limit. Torrents in Transmission that tam didn't add are listed by `sync` but never touched.
+
+#### Disconnecting the VPN when everything is done
+
+Suppose a `tam cleanup` run removes a finished torrent with no errors, and Transmission is left with nothing running: no downloads, no seeding, no checks, including torrents tam didn't add. Then `tam cleanup` also:
+
+1. runs `nordvpn disconnect`;
+2. runs `rpi-connect restart`, so Raspberry Pi Connect reconnects over the normal network.
+
+It only does this right after removing the last torrent, so hourly runs while idle don't keep restarting rpi-connect. It also skips this if a `tam start` is running at that moment. `tam start` reconnects the VPN by itself the next time there's something in the queue. `tam cleanup --dry-run` says whether it would disconnect. Set `TAM_IDLE_DISCONNECT=false` to turn this off.
+
+rpi-connect runs per user. So `tam cleanup` (cron) must run as the user who is signed in to Raspberry Pi Connect, and that user must also be allowed to use `nordvpn` (be in the `nordvpn` group). If either command fails, `tam cleanup` exits non-zero and says which one.
 
 A torrent moves through these statuses: `added → downloading → downloaded → copied → removed`. There are also two side states: `failed` (the reason is shown by `tam status`) and `missing` (gone from Transmission before it was copied).
 
