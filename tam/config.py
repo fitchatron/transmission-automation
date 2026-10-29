@@ -13,6 +13,13 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(value) if value else default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _env_int(name: str, default: int) -> int:
     value = os.environ.get(name)
     return int(value) if value else default
@@ -30,6 +37,7 @@ class Settings:
     transmission_pass: str | None = None
     metadata_timeout: int = 120
     video_exts: frozenset[str] = field(default_factory=lambda: frozenset({".mp4", ".mkv"}))
+    idle_disconnect: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -55,6 +63,7 @@ class Settings:
             transmission_user=os.environ.get("TRANSMISSION_USER") or None,
             transmission_pass=os.environ.get("TRANSMISSION_PASS") or None,
             metadata_timeout=_env_int("TAM_METADATA_TIMEOUT", defaults.metadata_timeout),
+            idle_disconnect=_env_bool("TAM_IDLE_DISCONNECT", defaults.idle_disconnect),
             video_exts=(
                 frozenset(
                     e if e.startswith(".") else f".{e}"

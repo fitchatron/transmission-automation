@@ -324,8 +324,23 @@ def cleanup(
         typer.echo(f"{report.still_seeding} copied torrent(s) still seeding.")
     for hash_, error in report.errors:
         typer.echo(f"Failed to remove {hash_}: {error}", err=True)
+    if report.would_go_idle:
+        typer.echo(
+            "Transmission would then be idle: would disconnect the VPN and restart rpi-connect."
+        )
+    elif report.idle is not None:
+        if report.idle.skipped:
+            typer.echo(f"Transmission is idle, but {report.idle.skipped}; VPN left connected.")
+        else:
+            if report.idle.vpn_disconnected:
+                typer.echo("Transmission is idle: VPN disconnected.")
+            if report.idle.rpi_connect_restarted:
+                typer.echo("rpi-connect restarted.")
+        if report.idle.error:
+            typer.echo(report.idle.error, err=True)
     copy_failed = any(r.outcome == COPY_FAILED for _, r in report.sync.copies)
-    if report.errors or copy_failed:
+    idle_failed = report.idle is not None and report.idle.error is not None
+    if report.errors or copy_failed or idle_failed:
         raise typer.Exit(1)
 
 

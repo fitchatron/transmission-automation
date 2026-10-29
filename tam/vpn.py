@@ -10,11 +10,13 @@ def start_vpn():
         pass
 
 
-def stop_vpn():
+def stop_vpn() -> bool:
+    """Run `nordvpn disconnect`. Returns False if nordvpn is missing or the command fails."""
     try:
-        subprocess.run(["nordvpn", "disconnect"], check=False)
+        result = subprocess.run(["nordvpn", "disconnect"], capture_output=True, check=False)
     except FileNotFoundError:
-        pass
+        return False
+    return result.returncode == 0
 
 
 def is_vpn_connected() -> bool:
@@ -34,3 +36,15 @@ def ensure_vpn(attempts: int = 3, sleep: Callable[[float], None] = time.sleep) -
         if attempt < attempts - 1:
             sleep(2)
     return is_vpn_connected()
+
+
+def restart_rpi_connect() -> tuple[bool, str]:
+    """Run `rpi-connect restart`. Returns (succeeded, output or error)."""
+    try:
+        result = subprocess.run(
+            ["rpi-connect", "restart"], capture_output=True, text=True, check=False
+        )
+    except FileNotFoundError:
+        return False, "rpi-connect is not installed"
+    output = (result.stdout or result.stderr or "").strip()
+    return result.returncode == 0, output

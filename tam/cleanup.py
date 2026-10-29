@@ -1,10 +1,12 @@
 import logging
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from tam import repo
 from tam.config import Settings
+from tam.idle import IdleResult, active_torrents, go_idle
 from tam.sync import SyncReport, sync
 from tam.transmission import Transmission, TransmissionUnavailable
 
@@ -16,6 +18,9 @@ class CleanupReport:
     removed: list[tuple[str, str | None]] = field(default_factory=list)
     still_seeding: int = 0
     errors: list[tuple[str, str]] = field(default_factory=list)
+    # Set when the last torrent was removed and Transmission is now idle.
+    idle: IdleResult | None = None
+    would_go_idle: bool = False
 
 
 def cleanup(
@@ -24,6 +29,7 @@ def cleanup(
     settings: Settings,
     log: logging.Logger,
     dry_run: bool = False,
+    on_idle: Callable[[Settings, logging.Logger], IdleResult] = go_idle,
 ) -> CleanupReport:
     """
     Remove torrents (and their downloaded data) that were copied and finished seeding.
@@ -32,6 +38,10 @@ def cleanup(
     torrent hits its seed ratio or idle limit. Only rows with status copied
     are ever removed. Runs a sync first (copying anything pending, unless
     this is a dry run) so statuses are current.
+
+    If this run removed something without errors and Transmission then has
+    nothing left running, the VPN is disconnected and rpi-connect restarted
+    (see tam.idle). Turn this off with TAM_IDLE_DISCONNECT=false.
     """
     sync_report = sync(conn, tm, log, settings, copy_pending=not dry_run)
     limits = tm.seed_limits_configured()
@@ -68,5 +78,14 @@ def cleanup(
         )
         log.info("Removed finished torrent %s (%s) and its data", name, hash_)
         report.removed.append((hash_, name))
+
+    if settings.idle_disconnect and report.removed and not report.errors:
+        removed = {hash_ for hash_, _ in report.removed}
+        remaining = [t for t in tm.torrents() if not (dry_run and t.hash in removed)]
+        if not active_torrents(remaining):
+            if dry_run:
+                report.would_go_idle = True
+            else:
+                report.idle = on_idle(settings, log)
 
     return report

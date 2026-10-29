@@ -201,7 +201,7 @@ def test_status_empty():
     assert "No tracked torrents" in result.output
 
 
-def test_cleanup_dry_run_then_real(monkeypatch, tmp_path):
+def test_cleanup_dry_run_then_real(monkeypatch, tmp_path, system):
     client = FakeClient()
     client.torrents[HASH] = torrent_fields(
         name="Done.Show", metadataPercentComplete=1.0, percentDone=1.0, isFinished=True
@@ -220,10 +220,13 @@ def test_cleanup_dry_run_then_real(monkeypatch, tmp_path):
     assert "Would remove 1" in dry.output and "Done.Show" in dry.output
     assert "no seed ratio or idle limit" in dry.output
     assert client.removed == []
+    assert "would disconnect the VPN and restart rpi-connect" in dry.output
 
     real = invoke("cleanup")
     assert real.exit_code == 0, real.output
     assert "Removed 1" in real.output
     assert client.removed == [(HASH, True)]
+    assert "VPN disconnected" in real.output and "rpi-connect restarted" in real.output
     status = conn.execute("SELECT status FROM torrents WHERE hash = ?", (HASH,)).fetchone()
     assert status == ("removed",)
+    assert system.calls == ["vpn disconnect", "rpi-connect restart"]

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tam.config import Settings
 
 
@@ -28,3 +30,17 @@ def test_env_file_and_overrides(monkeypatch, tmp_path):
     assert settings.db_path == tmp_path / "x.db"
     assert settings.transmission_port == 1234
     assert settings.video_exts == {".mkv", ".avi"}
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [(None, True), ("", True), ("false", False), ("0", False), ("no", False), ("TRUE", True)],
+)
+def test_idle_disconnect_setting(monkeypatch, tmp_path, value, expected):
+    monkeypatch.setenv("TAM_ENV_FILE", str(tmp_path / "missing.env"))
+    if value is None:
+        monkeypatch.delenv("TAM_IDLE_DISCONNECT", raising=False)
+    else:
+        monkeypatch.setenv("TAM_IDLE_DISCONNECT", value)
+
+    assert Settings.from_env().idle_disconnect is expected
