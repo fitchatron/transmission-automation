@@ -31,6 +31,7 @@ class Settings:
     queue_dir: Path = BASE_DIR / "queue"
     log_dir: Path = BASE_DIR / "logs"
     default_dest: Path = Path("/mnt/ds223j/Incoming")
+    movie_dest: Path = Path("/Movies")
     transmission_host: str = "localhost"
     transmission_port: int = 9091
     transmission_user: str | None = None
@@ -58,6 +59,7 @@ class Settings:
             queue_dir=_env_path("TAM_QUEUE_DIR", defaults.queue_dir),
             log_dir=_env_path("TAM_LOG_DIR", defaults.log_dir),
             default_dest=_env_path("TAM_DEFAULT_DEST", defaults.default_dest),
+            movie_dest=_env_path("TAM_MOVIE_DEST", defaults.movie_dest),
             transmission_host=os.environ.get("TRANSMISSION_HOST", defaults.transmission_host),
             transmission_port=_env_int("TRANSMISSION_PORT", defaults.transmission_port),
             transmission_user=os.environ.get("TRANSMISSION_USER") or None,

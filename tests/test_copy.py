@@ -24,7 +24,9 @@ def downloads(tmp_path):
 def settings(tmp_path):
     incoming = tmp_path / "Incoming"
     incoming.mkdir()
-    return Settings(default_dest=incoming)
+    movies = tmp_path / "Movies"
+    movies.mkdir()
+    return Settings(default_dest=incoming, movie_dest=movies)
 
 
 @pytest.fixture
@@ -170,14 +172,105 @@ def test_untracked_hash_is_ignored_and_not_inserted(conn, client, settings, down
     assert repo.list_torrents(conn) == []
 
 
-def test_unmatched_uses_default_destination(conn, client, settings, downloads):
+def test_unmatched_tv_uses_default_destination(conn, client, settings, downloads):
+    add_download(client, downloads, {"Other.Show.S01E01.mkv": b"e"}, name="Other.Show.S01E01")
+    repo.insert_torrent(conn, HASH, "tv-show", name="Other.Show.S01E01")
+
+    result = run(conn, client, settings)
+
+    assert result.destination == settings.default_dest
+    assert (settings.default_dest / "Other.Show.S01E01.mkv").exists()
+
+
+def test_movie_goes_to_movie_destination_without_metadata(conn, client, settings, downloads):
     add_download(client, downloads, {"Some.Movie.2024.mkv": b"m"}, name="Some.Movie.2024")
     track(conn, name="Some.Movie.2024", type_="movie")
 
     result = run(conn, client, settings)
 
-    assert result.destination == settings.default_dest
-    assert (settings.default_dest / "Some.Movie.2024.mkv").exists()
+    assert result.outcome == COPIED
+    assert result.destination == settings.movie_dest
+    assert sorted(p.name for p in settings.movie_dest.iterdir()) == ["Some.Movie.2024.mkv"]
+    assert list(settings.default_dest.iterdir()) == []
+
+
+def test_movie_ignores_movie_metadata(conn, client, settings, downloads, tmp_path):
+    """Old movie metadata rows are no longer used for routing."""
+    elsewhere = tmp_path / "Elsewhere"
+    elsewhere.mkdir()
+    repo.add_metadata(conn, "Some Movie", "movie", "Some.Movie", str(elsewhere))
+    add_download(client, downloads, {"Some.Movie.2024.mkv": b"m"}, name="Some.Movie.2024")
+    repo.insert_torrent(conn, HASH, "movie")  # name NULL, as if pending
+
+    result = run(conn, client, settings)
+
+    assert result.destination == settings.movie_dest
+    assert repo.get_torrent(conn, HASH)["metadata_id"] is None
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_movie_with_subtitles_gets_its_own_folder(conn, client, settings, downloads):
+    add_download(
+        client,
+        downloads,
+        {
+            "Some.Movie.2024/Some.Movie.2024.mkv": b"movie",
+            "Some.Movie.2024/Some.Movie.2024.en.srt": b"subs",
+            "Some.Movie.2024/Subs/French.SRT": b"sous",
+            "Some.Movie.2024/Sample/sample.mkv": b"s",
+            "Some.Movie.2024/info.nfo": b"nfo",
+        },
+        name="Some.Movie.2024",
+    )
+    track(conn, name="Some.Movie.2024", type_="movie")
+
+    result = run(conn, client, settings)
+
+    folder = settings.movie_dest / "Some.Movie.2024"
+    assert result.outcome == COPIED
+    assert result.destination == folder
+    assert [p.name for p in settings.movie_dest.iterdir()] == ["Some.Movie.2024"]
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "French.SRT",
+        "Some.Movie.2024.en.srt",
+        "Some.Movie.2024.mkv",
+    ]
+    assert (folder / "Some.Movie.2024.en.srt").read_bytes() == b"subs"
+
+
+def test_movie_with_subtitles_retry_reuses_folder(conn, client, settings, downloads):
+    files = {"M/M.mkv": b"movie", "M/M.srt": b"subs"}
+    add_download(client, downloads, files, name="M")
+    track(conn, name="M", type_="movie")
+    assert run(conn, client, settings).outcome == COPIED
+
+    result = run(conn, client, settings)
+
+    assert result.outcome == COPIED and result.copied == [] and len(result.skipped) == 2
+
+
+def test_movie_with_incomplete_subtitle_fails(conn, client, settings, downloads):
+    add_download(client, downloads, {"M/M.mkv": b"movie", "M/M.srt": b"subs"}, name="M")
+    client.torrents[HASH]["files"][1]["bytesCompleted"] = 0
+    track(conn, name="M", type_="movie")
+
+    result = run(conn, client, settings)
+
+    assert result.outcome == FAILED and "M.srt" in result.error
+    assert list(settings.movie_dest.iterdir()) == []
+
+
+def test_tv_subtitles_are_not_copied(conn, client, settings, downloads, tv_dest):
+    add_download(
+        client,
+        downloads,
+        {"R/Rick.and.Morty.S09E04.mkv": b"episode", "R/Rick.and.Morty.S09E04.srt": b"subs"},
+    )
+    track(conn)
+
+    run(conn, client, settings)
+
+    assert sorted(p.name for p in tv_dest.iterdir()) == ["Rick.and.Morty.S09E04.mkv"]
 
 
 def test_unavailable_destination_fails_instead_of_falling_back(
@@ -198,15 +291,16 @@ def test_unavailable_destination_fails_instead_of_falling_back(
     assert list(settings.default_dest.iterdir()) == []  # nothing went to the fallback
 
 
-def test_unavailable_default_destination_fails(conn, client, settings, downloads):
-    add_download(client, downloads, {"Some.Movie.2024.mkv": b"m"}, name="Some.Movie.2024")
-    track(conn, name="Some.Movie.2024", type_="movie")
-    settings.default_dest.rmdir()
+def test_unavailable_movie_destination_fails(conn, client, settings, downloads):
+    add_download(client, downloads, {"M/M.mkv": b"m", "M/M.srt": b"s"}, name="M")
+    track(conn, name="M", type_="movie")
+    settings.movie_dest.rmdir()
 
     result = run(conn, client, settings)
 
     assert result.outcome == FAILED
     assert "not available" in result.error
+    assert not settings.movie_dest.exists()  # the movie folder isn't created on its own
 
 
 def test_copy_that_does_not_land_fails(conn, client, settings, downloads, tv_dest, monkeypatch):
