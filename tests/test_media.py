@@ -63,7 +63,7 @@ def conn():
     [
         ("Rick.and.Morty.S09E04.1080p.WEB.h264-EDITH[EZTVx.to].mkv", "tv-show", "/TV/Rick"),
         ("www.UIndex.org    -    The.Boys.S05E01.1080p.WEB.h264-ETHEL", "tv-show", "/TV/Boys"),
-        ("The Boys S05E06 Though the Heavens Fall 1080p", "movie", "/Movies"),
+        ("The Boys S05E06 Though the Heavens Fall 1080p", "movie", None),  # movies never match
         ("Invincible.2021.S04E07.1080p.WEB.h264-ETHEL", "tv-show", None),
         ("Rick.and.Morty.S09E04.1080p", "movie", None),
     ],

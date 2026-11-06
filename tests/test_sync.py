@@ -131,8 +131,8 @@ def test_copy_pending(conn, client, tmp_path):
     downloads = tmp_path / "downloads"
     downloads.mkdir()
     (downloads / "Movie.mkv").write_bytes(b"m")
-    incoming = tmp_path / "Incoming"
-    incoming.mkdir()
+    movies = tmp_path / "Movies"
+    movies.mkdir()
     repo.insert_torrent(conn, HASH, "movie", name="Movie", status="downloading")
     client.torrents[HASH] = torrent_fields(
         name="Movie",
@@ -144,8 +144,8 @@ def test_copy_pending(conn, client, tmp_path):
         wanted=[True],
     )
 
-    report = run(conn, client, settings=Settings(default_dest=incoming), copy_pending=True)
+    report = run(conn, client, settings=Settings(movie_dest=movies), copy_pending=True)
 
     assert [r.outcome for _, r in report.copies] == ["copied"]
     assert status(conn) == "copied"
-    assert (incoming / "Movie.mkv").exists()
+    assert (movies / "Movie.mkv").exists()

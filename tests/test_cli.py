@@ -47,11 +47,9 @@ def test_media_add_list_disable():
         ).exit_code
         == 0
     )
-    assert invoke("media", "add", "The Matrix", "movie").exit_code == 0
 
     listed = invoke("media", "list")
     assert "Rick.and.Morty" in listed.output and "tv-show" in listed.output
-    assert "/Movies" in listed.output
 
     assert invoke("media", "disable", "1").exit_code == 0
     assert "Rick.and.Morty" not in invoke("media", "list").output
@@ -62,8 +60,11 @@ def test_media_add_validation():
     assert invoke("media", "add", "Show", "tv").exit_code == 2  # tv needs a destination
     assert invoke("media", "add", "Show", "cartoon", "/x").exit_code == 2
 
-    assert invoke("media", "add", "Dup", "movie").exit_code == 0
-    duplicate = invoke("media", "add", "Dup", "movie")
+    movie = invoke("media", "add", "The Matrix", "movie", "/Movies")
+    assert movie.exit_code == 2 and "TAM_MOVIE_DEST" in movie.output
+
+    assert invoke("media", "add", "Dup", "tv", "/TV/Dup").exit_code == 0
+    duplicate = invoke("media", "add", "Dup", "tv", "/TV/Dup")
     assert duplicate.exit_code == 1
     assert "already uses pattern" in duplicate.output
 
@@ -131,9 +132,9 @@ def test_on_done_copies_by_hash(monkeypatch, tmp_path):
     downloads = tmp_path / "downloads"
     downloads.mkdir()
     (downloads / "Some.Movie.2024.mkv").write_bytes(b"movie")
-    incoming = tmp_path / "Incoming"
-    incoming.mkdir()
-    monkeypatch.setenv("TAM_DEFAULT_DEST", str(incoming))
+    movies = tmp_path / "Movies"
+    movies.mkdir()
+    monkeypatch.setenv("TAM_MOVIE_DEST", str(movies))
 
     client = FakeClient()
     client.torrents[HASH] = torrent_fields(
@@ -154,7 +155,7 @@ def test_on_done_copies_by_hash(monkeypatch, tmp_path):
     result = invoke("on-done")
 
     assert result.exit_code == 0, result.output
-    assert (incoming / "Some.Movie.2024.mkv").read_bytes() == b"movie"
+    assert (movies / "Some.Movie.2024.mkv").read_bytes() == b"movie"
     status = conn.execute("SELECT status FROM torrents WHERE hash = ?", (HASH,)).fetchone()
     assert status == ("copied",)
 

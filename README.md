@@ -56,7 +56,8 @@ Settings are read from environment variables. `tam` also loads `/opt/media-autom
 | `TAM_DB_PATH` | `/opt/media-automation/torrentdata.db` | SQLite database |
 | `TAM_QUEUE_DIR` | `/opt/media-automation/queue` | Where `tv.txt` and `movies.txt` live |
 | `TAM_LOG_DIR` | `/opt/media-automation/logs` | `tam.log` is written here |
-| `TAM_DEFAULT_DEST` | `/mnt/ds223j/Incoming` | Destination for torrents that match no metadata |
+| `TAM_DEFAULT_DEST` | `/mnt/ds223j/Incoming` | Destination for TV torrents that match no metadata |
+| `TAM_MOVIE_DEST` | `/Movies` | Destination for every movie |
 | `TAM_METADATA_TIMEOUT` | `120` | Seconds `tam start` waits for torrent names to resolve |
 | `TAM_VIDEO_EXTS` | `.mp4,.mkv` | File types that get copied |
 | `TAM_IDLE_DISCONNECT` | `true` | Disconnect the VPN and restart rpi-connect once the last torrent is removed (see below) |
@@ -65,16 +66,19 @@ Settings are read from environment variables. `tam` also loads `/opt/media-autom
 
 ## Day to day
 
-### 1. Tell tam where things go
+### 1. Tell tam where TV shows go
 
 ```bash
 tam media add "Rick and Morty" tv /TV/Rick --pattern Rick.and.Morty
-tam media add "The Matrix" movie            # movies default to /Movies
 tam media list                               # --all includes disabled rows
 tam media disable 3
 ```
 
-A torrent is sent to the first active entry of its type whose pattern appears in the torrent's name. In a pattern, `.` matches any separator (`.`, `,`, `-` or a space), and matching ignores case. Torrents with no match go to `TAM_DEFAULT_DEST`. If the destination folder isn't available (missing, or the share isn't mounted), the copy fails and the row is marked `failed`, so nothing goes to the wrong place. Fix the folder, then run `tam copy <info-hash>`.
+A TV torrent is sent to the first active entry whose pattern appears in the torrent's name. In a pattern, `.` matches any separator (`.`, `,`, `-` or a space), and matching ignores case. TV torrents with no match go to `TAM_DEFAULT_DEST`.
+
+Movies need no entry: they all go to `TAM_MOVIE_DEST`. If a movie torrent includes `.srt` subtitles, a folder named after the torrent is made in `TAM_MOVIE_DEST` and the video and subtitle files are copied into it; otherwise the video file goes straight into `TAM_MOVIE_DEST`. Any movie metadata rows left from older versions are ignored.
+
+If the destination folder isn't available (missing, or the share isn't mounted), the copy fails and the row is marked `failed`, so nothing goes to the wrong place. Fix the folder, then run `tam copy <info-hash>`.
 
 ### 2. Queue magnets
 
@@ -98,7 +102,7 @@ tam start
 
 ### 3. Completed downloads are copied automatically
 
-When a download finishes, Transmission runs `tam on-done` (see [Transmission setup](#transmission-setup)). It finds the torrent by hash and copies its video files (sample clips are skipped) to the matched destination. Each file is written as `<name>.part`, renamed, then checked to be at the destination at full size before the row is marked `copied`. The torrent keeps seeding.
+When a download finishes, Transmission runs `tam on-done` (see [Transmission setup](#transmission-setup)). It finds the torrent by hash and copies its video files (sample clips are skipped), plus any `.srt` files for movies, to the destination. Each file is written as `<name>.part`, renamed, then checked to be at the destination at full size before the row is marked `copied`. The torrent keeps seeding.
 
 To retry a failed copy by hand:
 

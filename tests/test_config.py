@@ -7,7 +7,7 @@ from tam.config import Settings
 
 def test_defaults_without_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TAM_ENV_FILE", str(tmp_path / "missing.env"))
-    for var in ("TAM_DB_PATH", "TAM_VIDEO_EXTS", "TRANSMISSION_PORT"):
+    for var in ("TAM_DB_PATH", "TAM_VIDEO_EXTS", "TRANSMISSION_PORT", "TAM_MOVIE_DEST"):
         monkeypatch.delenv(var, raising=False)
 
     settings = Settings.from_env()
@@ -15,6 +15,7 @@ def test_defaults_without_env(monkeypatch, tmp_path):
     assert settings.db_path == Path("/opt/media-automation/torrentdata.db")
     assert settings.transmission_port == 9091
     assert settings.video_exts == {".mp4", ".mkv"}
+    assert settings.movie_dest == Path("/Movies")
 
 
 def test_env_file_and_overrides(monkeypatch, tmp_path):
