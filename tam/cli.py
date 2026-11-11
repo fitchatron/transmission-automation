@@ -23,7 +23,7 @@ from tam.vpn import ensure_vpn
 
 app = typer.Typer(help="Transmission automation.", no_args_is_help=True)
 db_app = typer.Typer(help="Database management.", no_args_is_help=True)
-media_app = typer.Typer(help="Manage metadata used to route downloads.", no_args_is_help=True)
+media_app = typer.Typer(help="Manage metadata used to route TV downloads.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(media_app, name="media")
 
@@ -39,14 +39,16 @@ def main(
 
 
 TYPE_ALIASES = {"tv": "tv-show", "tv-show": "tv-show", "movie": "movie"}
-DEFAULT_MOVIE_DEST = "/Movies"
 
 
 def media_type(value: str) -> str:
     try:
-        return TYPE_ALIASES[value.lower()]
+        type_ = TYPE_ALIASES[value.lower()]
     except KeyError:
-        raise typer.BadParameter("must be one of: tv, tv-show, movie") from None
+        raise typer.BadParameter("must be one of: tv, tv-show") from None
+    if type_ == "movie":
+        raise typer.BadParameter("movies don't need metadata; they all go to TAM_MOVIE_DEST")
+    return type_
 
 
 def _connect(ctx: typer.Context) -> sqlite3.Connection:
@@ -75,23 +77,14 @@ def db_init(ctx: typer.Context):
 def media_add(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Display title (also the match pattern).")],
-    type_: Annotated[str, typer.Argument(metavar="TYPE", help="tv | movie", parser=media_type)],
-    destination: Annotated[
-        str | None,
-        typer.Argument(
-            help=f"Destination dir. Required for tv; movies default to {DEFAULT_MOVIE_DEST}."
-        ),
-    ] = None,
+    type_: Annotated[str, typer.Argument(metavar="TYPE", help="tv", parser=media_type)],
+    destination: Annotated[str, typer.Argument(help="Destination dir.")],
     pattern: Annotated[
         str | None,
         typer.Option(help="Match pattern if different from NAME ('.' matches any separator)."),
     ] = None,
 ):
-    """Add a metadata row used to match torrents to a destination."""
-    if destination is None:
-        if type_ == "tv-show":
-            raise typer.BadParameter("DESTINATION is required for tv", param_hint="DESTINATION")
-        destination = DEFAULT_MOVIE_DEST
+    """Add a metadata row used to match TV torrents to a destination."""
     pattern = pattern or name
 
     conn = _connect(ctx)
@@ -359,6 +352,7 @@ def status(
     all_: Annotated[bool, typer.Option("--all", help="Include removed torrents.")] = False,
 ):
     """Show tracked torrents and their state (as of the last sync)."""
+    settings: Settings = ctx.obj["settings"]
     conn = _connect(ctx)
     try:
         statuses = None if all_ else [s for s in TORRENT_STATUSES if s != "removed"]
@@ -382,7 +376,11 @@ def status(
             row["type"],
             f"{row['percent_done'] * 100:.0f}%",
             escape(row["name"] or "(resolving)"),
-            escape(destinations.get(row["metadata_id"], "(default)")),
+            escape(
+                str(settings.movie_dest)
+                if row["type"] == "movie"
+                else destinations.get(row["metadata_id"], "(default)")
+            ),
             row["hash"][:8],
         )
         if row["status"] == "failed" and row["error"]:

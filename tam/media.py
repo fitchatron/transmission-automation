@@ -57,7 +57,11 @@ def match_metadata(conn: sqlite3.Connection, name: str, type_: str) -> sqlite3.R
     """
     Return the first active metadata row of this type whose match pattern
     appears in the torrent name (see contains_term), or None.
+
+    Movies are never matched: they all go to the movie destination.
     """
+    if type_ == "movie":
+        return None
     rows = conn.execute(
         "SELECT * FROM metadata WHERE type = ? AND active = 1 ORDER BY id", (type_,)
     ).fetchall()
